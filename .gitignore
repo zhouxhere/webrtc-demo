@@ -1,2 +1,8 @@
 # webstorm
 .idea
+
+# mac
+.DS_Store
+
+# nodejs
+node_modules
