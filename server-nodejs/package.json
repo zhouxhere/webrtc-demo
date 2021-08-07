@@ -1,0 +1,11 @@
+{
+  "name": "server-nodejs",
+  "version": "1.0.0",
+  "description": "webrtc demo server by nodejs",
+  "main": "index.ts",
+  "scripts": {
+    "test": "null"
+  },
+  "author": "zhouxhere",
+  "license": "MIT"
+}
