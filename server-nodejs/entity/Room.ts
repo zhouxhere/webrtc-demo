@@ -9,7 +9,7 @@ export class Room {
     admin: User
     member: Array<User>
     messages: Array<Message>
-    chat: Array<any>
+    chats: Array<any>
 
     constructor(name: string, admin: User) {
         this.id = v4()
@@ -17,7 +17,7 @@ export class Room {
         this.admin = admin
         this.member = []
         this.messages = []
-        this.chat = []
+        this.chats = []
         this.join(this.admin)
     }
 
@@ -49,16 +49,16 @@ export class Room {
     }
 
     open(user: User, client: Client, options: any) {
-        let _index = this.chat.findIndex(p => p.user.id === user.id)
+        let _index = this.chats.findIndex(p => p.user.id === user.id)
         if (_index < 0) {
-            this.chat.push({user: user, client: client, options: options})
+            this.chats.push({user: user, client: client, options: options})
         }
     }
 
     close(user: User) {
-        let _index = this.chat.findIndex(p => p.user.id === user.id)
+        let _index = this.chats.findIndex(p => p.user.id === user.id)
         if (_index >= 0) {
-            this.chat.splice(_index, 1)
+            this.chats.splice(_index, 1)
         }
     }
 

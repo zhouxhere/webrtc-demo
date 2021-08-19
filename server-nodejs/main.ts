@@ -7,8 +7,13 @@ import {Room} from "./entity/Room";
 import {Message} from "./entity/Message";
 
 const app = express()
+
 const httpServer = createServer(app)
-const io = new Server(httpServer,{})
+const io = new Server(httpServer,{
+    cors: {
+        origin: '*'
+    }
+})
 
 const rooms: Array<Room> = []
 
@@ -18,8 +23,8 @@ function getRoom(id: string): Room | null {
 
 const users: Array<User> = []
 
-function checkUser(unique: string): boolean {
-    return users.some(p => p.unique === unique)
+function checkUser(unique: string, name: string): boolean {
+    return users.some(p => p.unique === unique && p.name != name)
 }
 
 function findUser(name: string, unique: string): User | null {
@@ -35,22 +40,20 @@ function getClient(user: User, clientType: string): Client | null {
 }
 
 io.on("connection", (socket: Socket) => {
-    console.log('%d connected', socket.id)
+    console.log('connected', socket.id)
 
     /**
      * 登陆操作
-     * 1.顶掉上一个登陆的位置
-     * 2.不同设备都可以登录
      */
     socket.on('login', req => {
-        console.log('request login')
-        if (checkUser(req.unique)) socket.emit('login',{status: 'error', message: 'unique is already existed'})
+        console.log('login', req)
+        if (checkUser(req.unique, req.name)) return socket.emit('login',{status: 'error', message: 'unique is already existed'})
         let _user = findUser(req.name, req.unique)
         if (_user) {
             let _client = getClient(_user, req.clientType)
             if (_client) {
-                _user.logout(req.clientType)
                 socket.to(_client.socketId).emit('login', {status: 'error', message: 'login at other place'})
+                _user.logout(req.clientType)
             }
             _user.login(socket.id, req.clientType)
             socket.emit('login', {status: 'success', message: 'login success', data: _user})
@@ -65,6 +68,7 @@ io.on("connection", (socket: Socket) => {
      * 登出操作
      */
     socket.on('logout', req => {
+        console.log('logout', req)
         let _user = getUser(req.userId)
         if (_user) {
             _user.logout(req.clientType)
@@ -75,16 +79,21 @@ io.on("connection", (socket: Socket) => {
                 socket.leave(_room.id)
 
                 if (_room.member.length === 0) {
-                    rooms.splice(rooms.findIndex(p => p.id === _room?.id), 1)
+                    rooms.splice(rooms.findIndex(p => p.id === req.roomId), 1)
+                } else {
+                    io.in(req.roomId).emit('room', {status: 'success', data:_room})
                 }
             }
         }
+
+        socket.emit('logout', {status: 'success', message: 'logout success'})
     })
 
     /**
      * 新增房间
      */
     socket.on('create', req => {
+        console.log('create', req)
         let _user = getUser(req.userId)
         if (!_user) return socket.emit('create', {status: 'failure', message: 'user not existed'})
 
@@ -98,6 +107,7 @@ io.on("connection", (socket: Socket) => {
      * 加入房间
      */
     socket.on('join', req => {
+        console.log('join', req)
         let _user = getUser(req.userId)
         if (!_user) return socket.emit('join', {status: 'failure', message: 'user not existed'})
         let _room = getRoom(req.roomId)
@@ -106,13 +116,24 @@ io.on("connection", (socket: Socket) => {
         _room.join(_user)
         socket.join(_room.id)
 
-        return socket.emit('join', {status: 'success', message: 'join room success', data: _room})
+        socket.emit('join', {status: 'success', message: 'join success'})
+        io.in(req.roomId).emit('room', {status: 'success', data:_room})
+    })
+
+    /**
+     * 获取房间信息
+     */
+    socket.on('room', req => {
+        let _room = getRoom(req.roomId)
+        if (!_room) return socket.emit('join', {status: 'failure', message: 'room not existed'})
+        socket.emit('room', {status: 'success',data:_room})
     })
 
     /**
      * 离开房间
      */
     socket.on('leave', req => {
+        console.log('leave', req)
         let _user = getUser(req.userId)
         if (!_user) return socket.emit('leave', {status: 'failure', message: 'user not existed'})
         let _room = getRoom(req.roomId)
@@ -122,28 +143,34 @@ io.on("connection", (socket: Socket) => {
         socket.leave(_room.id)
 
         if (_room.member.length === 0) {
-            rooms.splice(rooms.findIndex(p => p.id === _room?.id), 1)
+            rooms.splice(rooms.findIndex(p => p.id === req.roomId), 1)
+        } else {
+            io.in(req.roomId).emit('room', {status: 'success', data:_room})
         }
 
-        return socket.emit('leave', {status: 'success', message: 'leave room success'})
+        socket.emit('leave', {status: 'success',message: 'leave success'})
     })
 
     /**
      * 发送消息
      */
     socket.on('message', req => {
+        console.log('message', req)
         let _room = getRoom(req.roomId)
         if (!_room) return socket.emit('message', {status: 'failure', message: 'room not existed'})
         let _message = new Message(req.userId, req.content)
         _room.messages.push(_message)
 
-        socket.to(req.roomId).emit('message', {status: 'success', data: _message})
+        // socket.to(req.roomId).emit('message', {status: 'success', data: _message})
+        socket.emit('message', {status: 'success', message: 'send message success'})
+        io.in(req.roomId).emit('room', {status: 'success', data:_room})
     })
 
     /**
      * 加入聊天
      */
     socket.on('join_chat', req => {
+        console.log('join_chat', req)
         let _user = getUser(req.userId)
         if (!_user) return socket.emit('join_chat', {status: 'failure', message: 'user not existed'})
         let _room = getRoom(req.roomId)
@@ -153,13 +180,16 @@ io.on("connection", (socket: Socket) => {
 
         _room.open(_user, _client, {video: req.video, audio: req.audio})
 
-        socket.to(req.roomId).emit('join_chat', {status: 'success',data: _user})
+        socket.emit('join_chat', {status: 'success',message: 'join chat success'})
+
+        io.in(req.roomId).emit('room', {status: 'success', data:_room})
     })
 
     /**
      * 离开聊天
      */
     socket.on('leave_chat', req => {
+        console.log('leave_chat', req)
         let _user = getUser(req.userId)
         if (!_user) return socket.emit('leave_chat', {status: 'failure', message: 'user not existed'})
         let _room = getRoom(req.roomId)
@@ -167,16 +197,49 @@ io.on("connection", (socket: Socket) => {
 
         _room.close(_user)
 
-        socket.to(req.roomId).emit('leave_chat', {status: 'success',data: _user})
+        socket.emit('leave_chat', {status: 'success',message: 'leave chat success'})
+        io.in(req.roomId).emit('room', {status: 'success', data:_room})
     })
 
     /**
-     * 建立连接
+     * webrtc
      */
     socket.on('chat', req => {
-        socket.to(req.to).emit('chat', {from: req.from, to: req.to, sdp: req.sdp, candidate: req.candidate})
+        console.log('chat', req)
+        socket.to(req.to).emit('chat', {status: 'success', data: {from: req.from, to: req.to, sdp: req.sdp, candidate: req.candidate}})
+    })
+
+    /**
+     * 断开
+     */
+    socket.on('close', req => {
+        console.log('close',req)
+        if (req.userId) {
+            let _user = users.find(p => p.id === req.userId)
+            if (_user) {
+                _user.logout(req.clientType)
+
+                let _room = rooms.find(p => p.id === req.roomId)
+                if (_room) {
+                    _room.leave(_user)
+
+                    if (_room.member.length === 0) {
+                        rooms.splice(rooms.findIndex(p => p.id === req.roomId), 1)
+                    } else {
+                        io.in(req.roomId).emit('room', {status: 'success', data:_room})
+                    }
+                }
+            }
+        }
+        socket.disconnect()
+    })
+
+
+    socket.on('disconnect', () => {
+        console.log('disconnect', socket.id)
     })
 })
+
 
 httpServer.listen(8000, () => {
     console.log('application listening 8000')
